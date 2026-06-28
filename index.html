@@ -1,807 +1,894 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Key, Send, Loader2, Bot, User, BookOpen, Trash2, ChevronRight, ChevronLeft, PenTool, GraduationCap, MessageSquare, Zap, CheckCircle2, BrainCircuit, List, Bookmark } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edu Notebook - AI PDF Assistant</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
 
-const PdfViewer = ({ url, initialPage = 1, onProgressChange }) => {
-  const canvasRef = useRef(null);
-  const [pdfDoc, setPdfDoc] = useState(null);
-  const [pageNum, setPageNum] = useState(1);
-  const [isRendering, setIsRendering] = useState(false);
-  const [loadError, setLoadError] = useState(null);
-  const [scriptLoaded, setScriptLoaded] = useState(false);
+  <style>
+    /* Custom Scrollbar styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-x-auto overflow-y-hidden">
 
-  useEffect(() => {
-    const loadPdfJs = async () => {
-      if (window.pdfjsLib) {
-        setScriptLoaded(true);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      script.async = true;
-      script.onload = () => {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        setScriptLoaded(true);
-      };
-      script.onerror = () => setLoadError('Failed to load PDF engine.');
-      document.body.appendChild(script);
-    };
-    loadPdfJs();
-  }, []);
-
-  useEffect(() => {
-    if (!scriptLoaded || !url) return;
-    
-    let active = true;
-    setPdfDoc(null);
-    setLoadError(null);
-
-    const fetchPdf = async () => {
-      try {
-        const loadingTask = window.pdfjsLib.getDocument(url);
-        const pdf = await loadingTask.promise;
-        if (active) {
-          setPdfDoc(pdf);
-          const validPage = Math.min(Math.max(1, initialPage), pdf.numPages);
-          setPageNum(validPage);
-        }
-      } catch (err) {
-        console.error(err);
-        if (active) setLoadError("Failed to render PDF. It might be encrypted or corrupted.");
-      }
-    };
-
-    fetchPdf();
-    return () => { active = false; };
-  }, [scriptLoaded, url]); // Keep initialPage out of deps to avoid re-running on scroll
-
-  // Notify parent of reading progress
-  useEffect(() => {
-    if (pdfDoc && onProgressChange) {
-      onProgressChange(pageNum, pdfDoc.numPages);
-    }
-  }, [pageNum, pdfDoc]);
-
-  useEffect(() => {
-    if (!pdfDoc || !canvasRef.current) return;
-    
-    let active = true;
-    const renderPage = async () => {
-      setIsRendering(true);
-      try {
-        const page = await pdfDoc.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.2 });
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        
-        const renderContext = {
-          canvasContext: context,
-          viewport: viewport
-        };
-        
-        await page.render(renderContext).promise;
-      } catch (err) {
-        if (active) console.error("Error rendering page:", err);
-      } finally {
-        if (active) setIsRendering(false);
-      }
-    };
-
-    renderPage();
-    return () => { active = false; };
-  }, [pdfDoc, pageNum]);
-
-  if (loadError) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-6 text-center bg-slate-50 rounded-b-2xl">
-        <FileText size={48} className="text-red-300 mb-4" />
-        <p className="text-red-600 font-medium">{loadError}</p>
+  <!-- Sidebar Navigation -->
+  <aside class="w-80 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-10 shadow-sm">
+    <div class="p-6 border-b border-slate-100 flex items-center space-x-3">
+      <div class="bg-indigo-600 p-2 rounded-xl">
+        <i data-lucide="book-open" class="text-white w-6 h-6"></i>
       </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 flex flex-col bg-slate-200 overflow-hidden relative rounded-b-2xl">
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-800/80 backdrop-blur-sm text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-4">
-        <button 
-          onClick={() => setPageNum(p => Math.max(1, p - 1))} 
-          disabled={pageNum <= 1 || isRendering}
-          className="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors"
-        >
-          <ChevronLeft size={20} />
-        </button>
-        <span className="text-sm font-medium w-24 text-center">
-          {pdfDoc ? `${pageNum} / ${pdfDoc.numPages}` : 'Loading...'}
-        </span>
-        <button 
-          onClick={() => setPageNum(p => Math.min(pdfDoc.numPages, p + 1))} 
-          disabled={!pdfDoc || pageNum >= pdfDoc.numPages || isRendering}
-          className="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
-      
-      <div className="flex-1 overflow-auto p-4 flex justify-center items-start">
-        {!scriptLoaded || !pdfDoc ? (
-          <div className="flex flex-col items-center justify-center h-full text-slate-500 space-y-3">
-            <Loader2 size={32} className="animate-spin text-indigo-500" />
-            <p className="text-sm font-medium">Processing Document...</p>
-          </div>
-        ) : (
-          <canvas 
-            ref={canvasRef} 
-            className={`shadow-xl bg-white transition-opacity duration-200 ${isRendering ? 'opacity-50' : 'opacity-100'}`} 
-          />
-        )}
+      <div>
+        <h1 class="font-bold text-lg text-slate-900 leading-tight">Edu Notebook</h1>
+        <p class="text-xs text-slate-500">AI PDF Assistant</p>
       </div>
     </div>
-  );
-};
 
-export default function App() {
-  const [apiKey, setApiKey] = useState('');
-  const [pdfs, setPdfs] = useState([]);
-  const [activePdfId, setActivePdfId] = useState(null);
-  const [chats, setChats] = useState({});
-  const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  
-  // New State for Advanced Features
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat', 'study', 'notes'
-  const [pdfData, setPdfData] = useState({}); // Stores summary, glossary, quiz, and notes per PDF
-  const [isGeneratingStudy, setIsGeneratingStudy] = useState(false);
-  const [quizState, setQuizState] = useState({}); // Tracks active quiz progress
-  const [readingProgress, setReadingProgress] = useState({}); // Tracks reading progress per PDF
-  
-  const fileInputRef = useRef(null);
-  const chatEndRef = useRef(null);
+    <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+      <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+        Configuration
+      </label>
+      <div class="relative">
+        <i data-lucide="key" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4"></i>
+        <input
+          type="password"
+          id="api-key-input"
+          placeholder="Google Gemini API Key"
+          class="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
+        />
+      </div>
+    </div>
 
-  const activePdf = pdfs.find(p => p.id === activePdfId);
-  const activeChat = activePdfId ? (chats[activePdfId] || []) : [];
-  const currentPdfData = activePdfId ? (pdfData[activePdfId] || {}) : {};
-  const currentQuizState = activePdfId ? (quizState[activePdfId] || { currentQuestion: 0, score: 0, selectedAnswer: null, completed: false }) : {};
+    <div class="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+          Your Library
+        </label>
+        
+        <input type="file" id="file-upload" accept=".pdf" class="hidden" />
+        <button
+          onclick="document.getElementById('file-upload').click()"
+          class="w-full flex items-center justify-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-4 rounded-xl text-sm font-medium transition-colors border border-indigo-100 mb-4"
+        >
+          <i data-lucide="upload" class="w-[18px] h-[18px]"></i>
+          <span>Upload PDF Book</span>
+        </button>
 
-  // Scroll to bottom of chat
-  useEffect(() => {
-    if (activeTab === 'chat') {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [activeChat, isLoading, activeTab]);
+        <div id="pdf-list" class="space-y-2">
+          <!-- Dynamic PDF List -->
+        </div>
+      </div>
+    </div>
+  </aside>
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file || file.type !== 'application/pdf') {
-      setError("Please upload a valid PDF file.");
-      return;
-    }
-
-    setError(null);
-    const reader = new FileReader();
+  <!-- Main Content Area -->
+  <main class="flex-1 flex bg-slate-50">
     
-    reader.onload = (event) => {
-      const base64 = event.target.result.split(',')[1];
-      const url = URL.createObjectURL(file);
+    <!-- Empty State / Welcome Screen -->
+    <div id="welcome-screen" class="flex-1 flex items-center justify-center">
+      <div class="max-w-md text-center p-8 bg-white rounded-3xl shadow-sm border border-slate-100">
+        <div class="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+          <i data-lucide="book-open" class="w-10 h-10"></i>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-800 mb-3">Welcome to Edu Notebook</h2>
+        <p class="text-slate-500 mb-8 leading-relaxed">
+          Upload your educational PDFs, textbooks, or papers, and use AI to ask questions, generate summaries, take quizzes, and master the material.
+        </p>
+      </div>
+    </div>
+
+    <!-- Active Workspace (Hidden by default) -->
+    <div id="workspace" class="flex-1 flex h-full hidden">
       
-      const newPdf = {
-        id: Math.random().toString(36).substring(7),
-        name: file.name,
-        url,
-        base64,
-        size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
-      };
-      
-      setPdfs(prev => [...prev, newPdf]);
-      setActivePdfId(newPdf.id);
-      setChats(prev => ({ ...prev, [newPdf.id]: [] }));
-      setPdfData(prev => ({ ...prev, [newPdf.id]: { notes: '' } }));
+      <!-- PDF Viewer Pane -->
+      <div class="flex-1 flex flex-col border-r border-slate-200 bg-slate-200/50 p-4 min-w-[500px]">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 overflow-hidden flex flex-col">
+          <div class="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="file-text" class="text-indigo-600 w-4 h-4"></i>
+              <span id="active-pdf-title" class="font-semibold text-sm text-slate-700 truncate max-w-md"></span>
+            </div>
+            <span id="active-pdf-size" class="text-xs text-slate-400 bg-white px-2 py-1 rounded-md border border-slate-100"></span>
+          </div>
+          
+          <div class="flex-1 flex flex-col bg-slate-200 overflow-hidden relative rounded-b-2xl">
+            <!-- PDF Controls -->
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-800/80 backdrop-blur-sm text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-4">
+              <button id="pdf-prev" class="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors">
+                <i data-lucide="chevron-left" class="w-5 h-5"></i>
+              </button>
+              <span id="pdf-page-info" class="text-sm font-medium w-24 text-center">Loading...</span>
+              <button id="pdf-next" class="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors">
+                <i data-lucide="chevron-right" class="w-5 h-5"></i>
+              </button>
+            </div>
+            
+            <div id="pdf-canvas-container" class="flex-1 overflow-auto p-4 flex justify-center items-start">
+              <canvas id="pdf-canvas" class="shadow-xl bg-white transition-opacity duration-200 opacity-100"></canvas>
+              <div id="pdf-loading" class="hidden flex-col items-center justify-center h-full text-slate-500 space-y-3">
+                <i data-lucide="loader-2" class="animate-spin text-indigo-500 w-8 h-8"></i>
+                <p class="text-sm font-medium">Processing Document...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Pane (Chat/Study/Notes) -->
+      <div class="w-[500px] flex flex-col bg-white flex-shrink-0 z-10 shadow-[0_0_15px_rgba(0,0,0,0.05)] relative">
+        
+        <!-- Tab Navigation -->
+        <div class="flex bg-slate-50 p-2 border-b border-slate-200 gap-1 absolute top-0 left-0 right-0 z-20 h-14">
+          <button onclick="switchTab('chat')" id="tab-btn-chat" class="flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors bg-white shadow-sm text-indigo-700">
+            <i data-lucide="message-square" class="w-4 h-4"></i> <span>Chat</span>
+          </button>
+          <button onclick="switchTab('study')" id="tab-btn-study" class="flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors text-slate-500 hover:text-slate-700 hover:bg-slate-100">
+            <i data-lucide="graduation-cap" class="w-4 h-4"></i> <span>Study Mode</span>
+          </button>
+          <button onclick="switchTab('notes')" id="tab-btn-notes" class="flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors text-slate-500 hover:text-slate-700 hover:bg-slate-100">
+            <i data-lucide="pen-tool" class="w-4 h-4"></i> <span>Notes</span>
+          </button>
+        </div>
+
+        <!-- Global Error Banner -->
+        <div id="error-banner" class="hidden absolute top-14 left-0 right-0 bg-red-50 p-3 flex items-start space-x-2 border-b border-red-100 z-30 text-red-700 shadow-sm">
+          <i data-lucide="bot" class="mt-0.5 flex-shrink-0 w-4 h-4"></i>
+          <p id="error-text" class="text-sm"></p>
+        </div>
+
+        <!-- TABS CONTENT -->
+        <div class="flex-1 mt-14 overflow-hidden flex flex-col relative">
+          
+          <!-- 1. CHAT TAB -->
+          <div id="tab-content-chat" class="flex-1 flex flex-col h-full">
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-50/50">
+              <!-- Messages will go here -->
+            </div>
+
+            <!-- Quick Actions Bar -->
+            <div class="bg-slate-50 flex gap-2 overflow-x-auto border-t border-slate-200 p-2.5 px-4 scrollbar-hide">
+              <button onclick="handleQuickAction('eli5')" class="quick-action-btn whitespace-nowrap flex items-center text-xs font-medium bg-white text-indigo-700 px-3.5 py-2 rounded-full border border-indigo-100 hover:bg-indigo-50 transition-colors shadow-sm disabled:opacity-50">
+                <i data-lucide="zap" class="mr-1.5 text-amber-500 w-3.5 h-3.5"></i> Explain Like I'm 5
+              </button>
+              <button onclick="handleQuickAction('keypoints')" class="quick-action-btn whitespace-nowrap flex items-center text-xs font-medium bg-white text-emerald-700 px-3.5 py-2 rounded-full border border-emerald-100 hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50">
+                <i data-lucide="brain-circuit" class="mr-1.5 text-emerald-500 w-3.5 h-3.5"></i> Key Takeaways
+              </button>
+            </div>
+
+            <div class="p-4 bg-white border-t border-slate-100 z-10">
+              <form id="chat-form" class="relative flex items-center">
+                <input
+                  type="text"
+                  id="chat-input"
+                  placeholder="Ask something..."
+                  class="w-full bg-slate-50 border border-slate-200 rounded-full py-3 pl-5 pr-14 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-inner disabled:opacity-60"
+                />
+                <button type="submit" id="chat-submit" class="absolute right-1.5 p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-colors disabled:opacity-50 flex items-center justify-center">
+                  <i data-lucide="send" class="w-[18px] h-[18px] chat-send-icon"></i>
+                  <i data-lucide="loader-2" class="w-[18px] h-[18px] animate-spin hidden chat-loading-icon"></i>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- 2. STUDY TAB -->
+          <div id="tab-content-study" class="hidden flex-1 overflow-y-auto p-6 bg-slate-50 space-y-8">
+            
+            <!-- Summary Section -->
+            <section>
+              <h4 class="font-bold text-slate-800 mb-4 flex items-center">
+                <i data-lucide="book-open" class="mr-2 text-indigo-600 w-[18px] h-[18px]"></i> 
+                Document Summary
+              </h4>
+              <div id="study-summary-container"></div>
+            </section>
+
+            <!-- Glossary Section -->
+            <section class="pt-8 border-t border-slate-200">
+              <h4 class="font-bold text-slate-800 mb-4 flex items-center">
+                <i data-lucide="list" class="mr-2 text-amber-500 w-[18px] h-[18px]"></i> 
+                Glossary Extractor
+              </h4>
+              <div id="study-glossary-container"></div>
+            </section>
+
+            <!-- Quiz Section -->
+            <section class="pt-8 border-t border-slate-200">
+              <h4 class="font-bold text-slate-800 mb-4 flex items-center">
+                <i data-lucide="check-circle-2" class="mr-2 text-emerald-600 w-[18px] h-[18px]"></i> 
+                Knowledge Check Quiz
+              </h4>
+              <div id="study-quiz-container"></div>
+            </section>
+          </div>
+
+          <!-- 3. NOTES TAB -->
+          <div id="tab-content-notes" class="hidden flex-1 flex flex-col p-4 bg-slate-50">
+            <div class="flex items-center space-x-2 mb-3 px-2">
+              <i data-lucide="pen-tool" class="text-indigo-600 w-[18px] h-[18px]"></i>
+              <h4 class="font-bold text-slate-800">My Notes</h4>
+            </div>
+            <textarea
+              id="notes-textarea"
+              placeholder="Jot down your thoughts, copy important formulas, or outline ideas here. These notes are saved automatically for this document!"
+              class="flex-1 w-full bg-white border border-slate-200 rounded-2xl p-5 text-sm text-slate-700 leading-relaxed focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 shadow-sm resize-none"
+            ></textarea>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // --- Application State ---
+    const state = {
+      apiKey: '',
+      pdfs: [], // Array of objects: { id, name, url, base64, size }
+      activePdfId: null,
+      chats: {}, // Map: pdfId -> Array of {role, text}
+      pdfData: {}, // Map: pdfId -> { summary: str, glossary: [], quiz: [], notes: str }
+      quizState: {}, // Map: pdfId -> { currentQuestion, score, selectedAnswer, completed }
+      readingProgress: {}, // Map: pdfId -> { current, total }
+      activeTab: 'chat',
+      isLoadingChat: false,
+      isGeneratingStudy: false,
+      error: null
     };
-    
-    reader.onerror = () => {
-      setError("Failed to read the file.");
+
+    // --- DOM Elements ---
+    const dom = {
+      apiKeyInput: document.getElementById('api-key-input'),
+      fileUpload: document.getElementById('file-upload'),
+      pdfList: document.getElementById('pdf-list'),
+      welcomeScreen: document.getElementById('welcome-screen'),
+      workspace: document.getElementById('workspace'),
+      activePdfTitle: document.getElementById('active-pdf-title'),
+      activePdfSize: document.getElementById('active-pdf-size'),
+      pdfCanvas: document.getElementById('pdf-canvas'),
+      pdfLoading: document.getElementById('pdf-loading'),
+      pdfPageInfo: document.getElementById('pdf-page-info'),
+      pdfPrev: document.getElementById('pdf-prev'),
+      pdfNext: document.getElementById('pdf-next'),
+      errorBanner: document.getElementById('error-banner'),
+      errorText: document.getElementById('error-text'),
+      chatMessages: document.getElementById('chat-messages'),
+      chatInput: document.getElementById('chat-input'),
+      chatForm: document.getElementById('chat-form'),
+      chatSubmit: document.getElementById('chat-submit'),
+      notesTextarea: document.getElementById('notes-textarea'),
+      studySummary: document.getElementById('study-summary-container'),
+      studyGlossary: document.getElementById('study-glossary-container'),
+      studyQuiz: document.getElementById('study-quiz-container')
     };
-    
-    reader.readAsDataURL(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
 
-  const removePdf = (e, id) => {
-    e.stopPropagation();
-    setPdfs(prev => prev.filter(p => p.id !== id));
-    setChats(prev => {
-      const newChats = { ...prev };
-      delete newChats[id];
-      return newChats;
-    });
-    setPdfData(prev => {
-      const newData = { ...prev };
-      delete newData[id];
-      return newData;
-    });
-    if (activePdfId === id) setActivePdfId(null);
-  };
+    // --- PDF.js Globals ---
+    let currentPdfDoc = null;
+    let currentRenderTask = null;
+    let pdfPageNum = 1;
 
-  const callGeminiAPI = async (apiContents, requireJson = false) => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const payload = { contents: apiContents };
-    
-    if (requireJson) {
-      payload.generationConfig = { responseMimeType: "application/json" };
-    }
-    
-    const delays = [1000, 2000, 4000, 8000, 16000];
-    let lastError = null;
+    // --- Initialization & Event Listeners ---
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
 
-    for (let attempt = 0; attempt < 6; attempt++) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `HTTP error ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
-      } catch (err) {
-        lastError = err;
-        if (attempt < 5) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
-      }
-    }
-    throw lastError;
-  };
-
-  // Chat Actions
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputText.trim() || !apiKey || !activePdf) return;
-
-    const userMessage = inputText.trim();
-    setInputText('');
-    setError(null);
-    setIsLoading(true);
-
-    const newUserEntry = { role: 'user', text: userMessage };
-    const currentChat = [...activeChat, newUserEntry];
-    setChats(prev => ({ ...prev, [activePdfId]: currentChat }));
-
-    try {
-      const apiContents = currentChat.map((msg, index) => {
-        if (index === 0) {
-          return {
-            role: 'user',
-            parts: [
-              { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
-              { text: `Context document attached. User query: ${msg.text}` }
-            ]
-          };
-        }
-        return {
-          role: msg.role === 'model' ? 'model' : 'user',
-          parts: [{ text: msg.text }]
-        };
+      dom.apiKeyInput.addEventListener('input', (e) => {
+        state.apiKey = e.target.value;
+        renderApp();
       });
 
-      const responseText = await callGeminiAPI(apiContents);
+      dom.fileUpload.addEventListener('change', handleFileUpload);
       
-      setChats(prev => ({
-        ...prev,
-        [activePdfId]: [...currentChat, { role: 'model', text: responseText }]
-      }));
-    } catch (err) {
-      setError(`API Error: ${err.message || 'Failed to get response'}`);
-      setChats(prev => ({ ...prev, [activePdfId]: activeChat }));
-      setInputText(userMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleQuickAction = (actionType) => {
-    if (actionType === 'eli5') setInputText("Explain the core concepts of this document simply, like I am 5 years old. Use analogies if helpful.");
-    if (actionType === 'keypoints') setInputText("What are the top 5 key takeaways from this document?");
-  };
-
-  // Study Actions
-  const generateStudyMaterial = async (type) => {
-    if (!apiKey || !activePdf) return;
-    setIsGeneratingStudy(true);
-    setError(null);
-
-    try {
-      let prompt = "";
-      if (type === 'summary') {
-        prompt = `Analyze the attached document. Return a JSON object EXACTLY matching this format: {"summary": "A 2-3 paragraph detailed executive summary of the document."}.`;
-      } else if (type === 'glossary') {
-        prompt = `Analyze the attached document and extract a comprehensive glossary of all key educational terms, concepts, and jargon. Return a JSON object EXACTLY matching this format: {"glossary": [{"term": "Concept 1", "definition": "Definition..."}, ...]}. Extract at least 10-15 terms.`;
-      } else if (type === 'quiz') {
-        prompt = `Analyze the attached document and generate a 5-question multiple choice quiz testing the core concepts. Return a JSON object EXACTLY matching this format: {"questions": [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "Exact string matching one of the options"}]}.`;
-      }
-
-      const contents = [{
-        role: 'user',
-        parts: [
-          { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
-          { text: prompt }
-        ]
-      }];
-
-      const resText = await callGeminiAPI(contents, true);
-      // Clean up markdown block wrapping if Gemini decides to include it despite mimeType
-      const cleanJson = resText.replace(/^```json\n?/, '').replace(/```$/, '').trim();
-      const parsedData = JSON.parse(cleanJson);
-
-      setPdfData(prev => ({
-        ...prev,
-        [activePdfId]: {
-          ...(prev[activePdfId] || {}),
-          ...(type === 'summary' && { summary: parsedData.summary }),
-          ...(type === 'glossary' && { glossary: parsedData.glossary }),
-          ...(type === 'quiz' && { quiz: parsedData.questions })
+      dom.chatForm.addEventListener('submit', handleSendMessage);
+      
+      dom.notesTextarea.addEventListener('input', (e) => {
+        if (state.activePdfId) {
+          if (!state.pdfData[state.activePdfId]) state.pdfData[state.activePdfId] = {};
+          state.pdfData[state.activePdfId].notes = e.target.value;
         }
-      }));
+      });
 
-      if (type === 'quiz') {
-        setQuizState(prev => ({ ...prev, [activePdfId]: { currentQuestion: 0, score: 0, selectedAnswer: null, completed: false } }));
+      dom.pdfPrev.addEventListener('click', () => {
+        if (pdfPageNum <= 1) return;
+        pdfPageNum--;
+        renderPdfPage(pdfPageNum);
+      });
+
+      dom.pdfNext.addEventListener('click', () => {
+        if (!currentPdfDoc || pdfPageNum >= currentPdfDoc.numPages) return;
+        pdfPageNum++;
+        renderPdfPage(pdfPageNum);
+      });
+    });
+
+    // --- Core Logic ---
+
+    function showError(msg) {
+      state.error = msg;
+      if (msg) {
+        dom.errorText.textContent = msg;
+        dom.errorBanner.classList.remove('hidden');
+      } else {
+        dom.errorBanner.classList.add('hidden');
       }
-
-    } catch (err) {
-      console.error(err);
-      setError(`Failed to generate ${type}. The AI response may not have been correctly formatted.`);
-    } finally {
-      setIsGeneratingStudy(false);
     }
-  };
 
-  const handleQuizAnswer = (option) => {
-    setQuizState(prev => ({
-      ...prev,
-      [activePdfId]: { ...prev[activePdfId], selectedAnswer: option }
-    }));
-  };
-
-  const submitQuizAnswer = () => {
-    const isCorrect = currentQuizState.selectedAnswer === currentPdfData.quiz[currentQuizState.currentQuestion].correctAnswer;
-    const isLastQuestion = currentQuizState.currentQuestion === currentPdfData.quiz.length - 1;
-
-    setQuizState(prev => ({
-      ...prev,
-      [activePdfId]: {
-        ...currentQuizState,
-        score: isCorrect ? currentQuizState.score + 1 : currentQuizState.score,
-        currentQuestion: isLastQuestion ? currentQuizState.currentQuestion : currentQuizState.currentQuestion + 1,
-        selectedAnswer: null,
-        completed: isLastQuestion
+    function handleFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file || file.type !== 'application/pdf') {
+        showError("Please upload a valid PDF file.");
+        return;
       }
-    }));
-  };
 
-  // Notes Action
-  const updateNotes = (text) => {
-    setPdfData(prev => ({
-      ...prev,
-      [activePdfId]: { ...(prev[activePdfId] || {}), notes: text }
-    }));
-  };
-
-  return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-x-auto overflow-y-hidden">
+      showError(null);
+      const reader = new FileReader();
       
-      {/* Sidebar Navigation */}
-      <aside className="w-80 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-10 shadow-sm">
-        <div className="p-6 border-b border-slate-100 flex items-center space-x-3">
-          <div className="bg-indigo-600 p-2 rounded-xl">
-            <BookOpen size={24} className="text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg text-slate-900 leading-tight">Edu Notebook</h1>
-            <p className="text-xs text-slate-500">AI PDF Assistant</p>
-          </div>
-        </div>
+      reader.onload = (event) => {
+        const base64 = event.target.result.split(',')[1];
+        const url = URL.createObjectURL(file);
+        const id = Math.random().toString(36).substring(7);
+        
+        const newPdf = {
+          id,
+          name: file.name,
+          url,
+          base64,
+          size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+        };
+        
+        state.pdfs.push(newPdf);
+        state.chats[id] = [];
+        state.pdfData[id] = { notes: '' };
+        
+        setActivePdf(id);
+      };
+      
+      reader.onerror = () => showError("Failed to read the file.");
+      reader.readAsDataURL(file);
+      dom.fileUpload.value = ''; // reset
+    }
 
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            Configuration
-          </label>
-          <div className="relative">
-            <Key size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="password"
-              placeholder="Google Gemini API Key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
-            />
-          </div>
-        </div>
+    function setActivePdf(id) {
+      state.activePdfId = id;
+      state.activeTab = 'chat';
+      
+      const activePdf = state.pdfs.find(p => p.id === id);
+      if (activePdf) {
+        dom.activePdfTitle.textContent = activePdf.name;
+        dom.activePdfSize.textContent = activePdf.size;
+        
+        // Load PDF
+        loadPdfDocument(activePdf.url, id);
+      }
+      
+      renderApp();
+    }
 
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              Your Library
-            </label>
-            
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept=".pdf"
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-4 rounded-xl text-sm font-medium transition-colors border border-indigo-100 mb-4"
-            >
-              <Upload size={18} />
-              <span>Upload PDF Book</span>
+    function removePdf(e, id) {
+      e.stopPropagation();
+      state.pdfs = state.pdfs.filter(p => p.id !== id);
+      delete state.chats[id];
+      delete state.pdfData[id];
+      delete state.quizState[id];
+      delete state.readingProgress[id];
+      
+      if (state.activePdfId === id) {
+        state.activePdfId = null;
+        currentPdfDoc = null;
+      }
+      renderApp();
+    }
+
+    // --- PDF Rendering ---
+    async function loadPdfDocument(url, pdfId) {
+      dom.pdfCanvas.classList.add('hidden');
+      dom.pdfLoading.classList.remove('hidden');
+      dom.pdfLoading.classList.add('flex');
+      dom.pdfPrev.disabled = true;
+      dom.pdfNext.disabled = true;
+      dom.pdfPageInfo.textContent = 'Loading...';
+
+      try {
+        const loadingTask = pdfjsLib.getDocument(url);
+        currentPdfDoc = await loadingTask.promise;
+        
+        const progress = state.readingProgress[pdfId];
+        pdfPageNum = progress ? Math.min(Math.max(1, progress.current), currentPdfDoc.numPages) : 1;
+        
+        await renderPdfPage(pdfPageNum);
+      } catch (err) {
+        console.error(err);
+        dom.pdfPageInfo.textContent = 'Error';
+      } finally {
+        dom.pdfLoading.classList.add('hidden');
+        dom.pdfLoading.classList.remove('flex');
+        dom.pdfCanvas.classList.remove('hidden');
+      }
+    }
+
+    async function renderPdfPage(num) {
+      if (!currentPdfDoc) return;
+      
+      dom.pdfPrev.disabled = num <= 1;
+      dom.pdfNext.disabled = num >= currentPdfDoc.numPages;
+      dom.pdfPageInfo.textContent = `${num} / ${currentPdfDoc.numPages}`;
+      
+      // Update state progress
+      if(state.activePdfId) {
+        state.readingProgress[state.activePdfId] = { current: num, total: currentPdfDoc.numPages };
+        renderSidebar(); // Update progress bar
+      }
+
+      try {
+        const page = await currentPdfDoc.getPage(num);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const context = dom.pdfCanvas.getContext('2d');
+        dom.pdfCanvas.height = viewport.height;
+        dom.pdfCanvas.width = viewport.width;
+        
+        const renderContext = { canvasContext: context, viewport: viewport };
+        
+        if (currentRenderTask) currentRenderTask.cancel();
+        currentRenderTask = page.render(renderContext);
+        await currentRenderTask.promise;
+      } catch (err) {
+        if(err.name !== 'RenderingCancelledException') {
+            console.error('Render error:', err);
+        }
+      }
+    }
+
+    // --- Gemini API Logic ---
+    async function callGeminiAPI(apiContents, requireJson = false) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${state.apiKey}`;
+      const payload = { contents: apiContents };
+      
+      if (requireJson) {
+        payload.generationConfig = { responseMimeType: "application/json" };
+      }
+      
+      const delays = [1000, 2000, 4000, 8000, 16000];
+      let lastError = null;
+
+      for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error?.message || `HTTP error ${response.status}`);
+          }
+
+          const data = await response.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
+        } catch (err) {
+          lastError = err;
+          if (attempt < 5) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+        }
+      }
+      throw lastError;
+    }
+
+    async function handleSendMessage(e) {
+      e.preventDefault();
+      const inputText = dom.chatInput.value.trim();
+      const activePdf = state.pdfs.find(p => p.id === state.activePdfId);
+      
+      if (!inputText || !state.apiKey || !activePdf) return;
+
+      dom.chatInput.value = '';
+      showError(null);
+      state.isLoadingChat = true;
+
+      const newUserEntry = { role: 'user', text: inputText };
+      const currentChat = state.chats[state.activePdfId];
+      currentChat.push(newUserEntry);
+      renderChat();
+
+      try {
+        const apiContents = currentChat.map((msg, index) => {
+          if (index === 0) {
+            return {
+              role: 'user',
+              parts: [
+                { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
+                { text: `Context document attached. User query: ${msg.text}` }
+              ]
+            };
+          }
+          return {
+            role: msg.role === 'model' ? 'model' : 'user',
+            parts: [{ text: msg.text }]
+          };
+        });
+
+        const responseText = await callGeminiAPI(apiContents);
+        currentChat.push({ role: 'model', text: responseText });
+      } catch (err) {
+        showError(`API Error: ${err.message || 'Failed to get response'}`);
+        currentChat.pop(); // Remove user message on failure
+        dom.chatInput.value = inputText;
+      } finally {
+        state.isLoadingChat = false;
+        renderChat();
+      }
+    }
+
+    function handleQuickAction(actionType) {
+      if (actionType === 'eli5') dom.chatInput.value = "Explain the core concepts of this document simply, like I am 5 years old. Use analogies if helpful.";
+      if (actionType === 'keypoints') dom.chatInput.value = "What are the top 5 key takeaways from this document?";
+    }
+
+    async function generateStudyMaterial(type) {
+      const activePdf = state.pdfs.find(p => p.id === state.activePdfId);
+      if (!state.apiKey || !activePdf) return;
+      
+      state.isGeneratingStudy = true;
+      showError(null);
+      renderStudy();
+
+      try {
+        let prompt = "";
+        if (type === 'summary') {
+          prompt = `Analyze the attached document. Return a JSON object EXACTLY matching this format: {"summary": "A 2-3 paragraph detailed executive summary of the document."}.`;
+        } else if (type === 'glossary') {
+          prompt = `Analyze the attached document and extract a comprehensive glossary of all key educational terms, concepts, and jargon. Return a JSON object EXACTLY matching this format: {"glossary": [{"term": "Concept 1", "definition": "Definition..."}, ...]}. Extract at least 10-15 terms.`;
+        } else if (type === 'quiz') {
+          prompt = `Analyze the attached document and generate a 5-question multiple choice quiz testing the core concepts. Return a JSON object EXACTLY matching this format: {"questions": [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "Exact string matching one of the options"}]}.`;
+        }
+
+        const contents = [{
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
+            { text: prompt }
+          ]
+        }];
+
+        const resText = await callGeminiAPI(contents, true);
+        const cleanJson = resText.replace(/^```json\n?/, '').replace(/```$/, '').trim();
+        const parsedData = JSON.parse(cleanJson);
+
+        if(!state.pdfData[state.activePdfId]) state.pdfData[state.activePdfId] = {};
+        
+        if (type === 'summary') state.pdfData[state.activePdfId].summary = parsedData.summary;
+        if (type === 'glossary') state.pdfData[state.activePdfId].glossary = parsedData.glossary;
+        if (type === 'quiz') {
+          state.pdfData[state.activePdfId].quiz = parsedData.questions;
+          state.quizState[state.activePdfId] = { currentQuestion: 0, score: 0, selectedAnswer: null, completed: false };
+        }
+
+      } catch (err) {
+        console.error(err);
+        showError(`Failed to generate ${type}. The AI response may not have been correctly formatted.`);
+      } finally {
+        state.isGeneratingStudy = false;
+        renderStudy();
+      }
+    }
+
+    function handleQuizAnswer(option) {
+      if(!state.quizState[state.activePdfId]) return;
+      state.quizState[state.activePdfId].selectedAnswer = option;
+      renderStudy();
+    }
+
+    function submitQuizAnswer() {
+      const qState = state.quizState[state.activePdfId];
+      const data = state.pdfData[state.activePdfId];
+      if(!qState || !data || !data.quiz) return;
+
+      const isCorrect = qState.selectedAnswer === data.quiz[qState.currentQuestion].correctAnswer;
+      const isLastQuestion = qState.currentQuestion === data.quiz.length - 1;
+
+      if (isCorrect) qState.score += 1;
+      
+      if (isLastQuestion) {
+        qState.completed = true;
+      } else {
+        qState.currentQuestion += 1;
+      }
+      qState.selectedAnswer = null;
+      renderStudy();
+    }
+
+    // --- UI Rendering Functions ---
+
+    function switchTab(tabId) {
+      state.activeTab = tabId;
+      renderApp();
+    }
+
+    function renderSidebar() {
+      dom.pdfList.innerHTML = '';
+      
+      if (state.pdfs.length === 0) {
+        dom.pdfList.innerHTML = `
+          <div class="text-center py-8 text-slate-400">
+            <i data-lucide="file-text" class="w-8 h-8 mx-auto mb-3 opacity-20"></i>
+            <p class="text-sm">No documents yet.<br/>Upload a PDF to get started.</p>
+          </div>
+        `;
+      } else {
+        state.pdfs.forEach(pdf => {
+          const isActive = state.activePdfId === pdf.id;
+          const progress = state.readingProgress[pdf.id];
+          const percent = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+          
+          const div = document.createElement('div');
+          div.className = `group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
+            isActive ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-slate-100 text-slate-700 border border-transparent hover:border-slate-200'
+          }`;
+          div.onclick = () => setActivePdf(pdf.id);
+          
+          div.innerHTML = `
+            <div class="flex items-start space-x-3 overflow-hidden flex-1">
+              <i data-lucide="file-text" class="w-[18px] h-[18px] flex-shrink-0 mt-0.5 ${isActive ? 'text-indigo-200' : 'text-slate-400'}"></i>
+              <div class="flex-1 min-w-0 pr-2">
+                <div class="truncate text-sm font-medium">${pdf.name}</div>
+                ${progress ? `
+                  <div class="mt-2 flex items-center space-x-2">
+                    <div class="flex-1 h-1.5 bg-slate-200/30 rounded-full overflow-hidden">
+                      <div class="h-full rounded-full ${isActive ? 'bg-indigo-300' : 'bg-emerald-500'}" style="width: ${percent}%"></div>
+                    </div>
+                    <span class="text-[10px] font-bold ${isActive ? 'text-indigo-200' : 'text-slate-400'}">${percent}%</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+            <button class="remove-btn p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ${
+              isActive ? 'hover:bg-indigo-500 text-indigo-200 hover:text-white' : 'hover:bg-red-100 text-slate-400 hover:text-red-red-600'
+            }" title="Remove PDF">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
             </button>
+          `;
+          
+          div.querySelector('.remove-btn').onclick = (e) => removePdf(e, pdf.id);
+          dom.pdfList.appendChild(div);
+        });
+      }
+      lucide.createIcons();
+    }
 
-            <div className="space-y-2">
-              {pdfs.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">
-                  <FileText size={32} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">No documents yet.<br/>Upload a PDF to get started.</p>
-                </div>
-              ) : (
-                pdfs.map(pdf => {
-                  const progress = readingProgress[pdf.id];
-                  const percent = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
-                  
-                  return (
-                    <div
-                      key={pdf.id}
-                      onClick={() => setActivePdfId(pdf.id)}
-                      className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
-                        activePdfId === pdf.id 
-                          ? 'bg-indigo-600 text-white shadow-md' 
-                          : 'hover:bg-slate-100 text-slate-700 border border-transparent hover:border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3 overflow-hidden flex-1">
-                        <FileText size={18} className={`flex-shrink-0 mt-0.5 ${activePdfId === pdf.id ? 'text-indigo-200' : 'text-slate-400'}`} />
-                        <div className="flex-1 min-w-0 pr-2">
-                          <div className="truncate text-sm font-medium">
-                            {pdf.name}
-                          </div>
-                          {/* Reading Progress Indicator */}
-                          {progress && (
-                            <div className="mt-2 flex items-center space-x-2">
-                              <div className="flex-1 h-1.5 bg-slate-200/30 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full ${activePdfId === pdf.id ? 'bg-indigo-300' : 'bg-emerald-500'}`} 
-                                  style={{ width: `${percent}%` }}
-                                ></div>
-                              </div>
-                              <span className={`text-[10px] font-bold ${activePdfId === pdf.id ? 'text-indigo-200' : 'text-slate-400'}`}>
-                                {percent}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => removePdf(e, pdf.id)}
-                        className={`p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ${
-                          activePdfId === pdf.id ? 'hover:bg-indigo-500 text-indigo-200 hover:text-white' : 'hover:bg-red-100 text-slate-400 hover:text-red-600'
-                        }`}
-                        title="Remove PDF"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+    function renderChat() {
+      const activePdf = state.pdfs.find(p => p.id === state.activePdfId);
+      const chatHistory = state.activePdfId ? state.chats[state.activePdfId] : [];
+      
+      dom.chatMessages.innerHTML = '';
+
+      if (!chatHistory || chatHistory.length === 0) {
+        dom.chatMessages.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center px-6 text-slate-500 mt-10">
+            <i data-lucide="bot" class="w-12 h-12 text-indigo-200 mb-4"></i>
+            <p class="text-sm font-medium text-slate-700 mb-2">I've read "${activePdf ? activePdf.name : 'the document'}"</p>
+            <p class="text-xs">Ask me anything about the document, or use the quick actions below!</p>
           </div>
-        </div>
-      </aside>
+        `;
+      } else {
+        chatHistory.forEach(msg => {
+          const isUser = msg.role === 'user';
+          const div = document.createElement('div');
+          div.className = `flex items-start space-x-3 ${isUser ? 'flex-row-reverse space-x-reverse' : ''}`;
+          
+          // Format text with line breaks
+          const formattedText = msg.text.replace(/\n/g, '<br />');
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex bg-slate-50">
-        {!activePdf ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="max-w-md text-center p-8 bg-white rounded-3xl shadow-sm border border-slate-100">
-              <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <BookOpen size={40} />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-3">Welcome to Edu Notebook</h2>
-              <p className="text-slate-500 mb-8 leading-relaxed">
-                Upload your educational PDFs, textbooks, or papers, and use AI to ask questions, generate summaries, take quizzes, and master the material.
-              </p>
+          div.innerHTML = `
+            <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm ${isUser ? 'bg-indigo-600 text-white' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}">
+              <i data-lucide="${isUser ? 'user' : 'bot'}" class="w-4 h-4"></i>
             </div>
+            <div class="p-3.5 rounded-2xl text-sm leading-relaxed max-w-[85%] shadow-sm ${isUser ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-100 text-slate-700 rounded-tl-sm'}">
+              ${formattedText}
+            </div>
+          `;
+          dom.chatMessages.appendChild(div);
+        });
+      }
+
+      if (state.isLoadingChat) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = "flex items-start space-x-3";
+        loadingDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
+            <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
           </div>
-        ) : (
-          <div className="flex-1 flex h-full">
-            
-            {/* PDF Viewer Pane */}
-            <div className="flex-1 flex flex-col border-r border-slate-200 bg-slate-200/50 p-4 min-w-[500px]">
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 overflow-hidden flex flex-col">
-                <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <FileText size={16} className="text-indigo-600" />
-                    <span className="font-semibold text-sm text-slate-700 truncate max-w-md">{activePdf.name}</span>
-                  </div>
-                  <span className="text-xs text-slate-400 bg-white px-2 py-1 rounded-md border border-slate-100">{activePdf.size}</span>
-                </div>
-                <PdfViewer 
-                  url={activePdf.url} 
-                  initialPage={readingProgress[activePdfId]?.current || 1}
-                  onProgressChange={(current, total) => {
-                    setReadingProgress(prev => {
-                      if (prev[activePdfId]?.current === current && prev[activePdfId]?.total === total) return prev;
-                      return { ...prev, [activePdfId]: { current, total } };
-                    });
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Interactive Pane (Chat/Study/Notes) */}
-            <div className="w-[500px] flex flex-col bg-white flex-shrink-0 z-10 shadow-[0_0_15px_rgba(0,0,0,0.05)] relative">
-              
-              {/* Tab Navigation */}
-              <div className="flex bg-slate-50 p-2 border-b border-slate-200 gap-1 absolute top-0 left-0 right-0 z-20 h-14">
-                <button 
-                  onClick={() => setActiveTab('chat')} 
-                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'chat' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
-                >
-                  <MessageSquare size={16} /> <span>Chat</span>
-                </button>
-                <button 
-                  onClick={() => setActiveTab('study')} 
-                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'study' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
-                >
-                  <GraduationCap size={16} /> <span>Study Mode</span>
-                </button>
-                <button 
-                  onClick={() => setActiveTab('notes')} 
-                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'notes' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
-                >
-                  <PenTool size={16} /> <span>Notes</span>
-                </button>
-              </div>
-
-              {/* Error Banner */}
-              {error && (
-                <div className="absolute top-14 left-0 right-0 bg-red-50 p-3 flex items-start space-x-2 border-b border-red-100 z-30 text-red-700 shadow-sm">
-                  <Bot size={16} className="mt-0.5 flex-shrink-0" />
-                  <p className="text-sm">{error}</p>
-                </div>
-              )}
-
-              {/* TABS CONTENT */}
-              <div className="flex-1 mt-14 overflow-hidden flex flex-col relative">
-                
-                {/* 1. CHAT TAB */}
-                {activeTab === 'chat' && (
-                  <>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-50/50">
-                      {activeChat.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center px-6 text-slate-500">
-                          <Bot size={48} className="text-indigo-200 mb-4" />
-                          <p className="text-sm font-medium text-slate-700 mb-2">I've read "{activePdf.name}"</p>
-                          <p className="text-xs">Ask me anything about the document, or use the quick actions below!</p>
-                        </div>
-                      ) : (
-                        activeChat.map((msg, idx) => (
-                          <div key={idx} className={`flex items-start space-x-3 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
-                              {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-                            </div>
-                            <div className={`p-3.5 rounded-2xl text-sm leading-relaxed max-w-[85%] shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-100 text-slate-700 rounded-tl-sm'}`}>
-                              {msg.text.split('\n').map((line, i) => (
-                                <React.Fragment key={i}>{line}{i !== msg.text.split('\n').length - 1 && <br />}</React.Fragment>
-                              ))}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                      
-                      {isLoading && (
-                        <div className="flex items-start space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
-                            <Loader2 size={16} className="animate-spin" />
-                          </div>
-                          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl rounded-tl-sm shadow-sm flex items-center space-x-1 h-11">
-                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                          </div>
-                        </div>
-                      )}
-                      <div ref={chatEndRef} />
-                    </div>
-
-                    {/* Quick Actions Bar */}
-                    <div className="bg-slate-50 flex gap-2 overflow-x-auto border-t border-slate-200 p-2.5 px-4 scrollbar-hide">
-                      <button onClick={() => handleQuickAction('eli5')} disabled={isLoading || !apiKey} className="whitespace-nowrap flex items-center text-xs font-medium bg-white text-indigo-700 px-3.5 py-2 rounded-full border border-indigo-100 hover:bg-indigo-50 transition-colors shadow-sm disabled:opacity-50">
-                        <Zap size={14} className="mr-1.5 text-amber-500" /> Explain Like I'm 5
-                      </button>
-                      <button onClick={() => handleQuickAction('keypoints')} disabled={isLoading || !apiKey} className="whitespace-nowrap flex items-center text-xs font-medium bg-white text-emerald-700 px-3.5 py-2 rounded-full border border-emerald-100 hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50">
-                        <BrainCircuit size={14} className="mr-1.5 text-emerald-500" /> Key Takeaways
-                      </button>
-                    </div>
-
-                    <div className="p-4 bg-white border-t border-slate-100 z-10">
-                      <form onSubmit={handleSendMessage} className="relative flex items-center">
-                        <input
-                          type="text"
-                          value={inputText}
-                          onChange={(e) => setInputText(e.target.value)}
-                          placeholder={apiKey ? "Ask something..." : "Enter API Key to chat"}
-                          disabled={!apiKey || isLoading}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-full py-3 pl-5 pr-14 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-inner disabled:opacity-60"
-                        />
-                        <button type="submit" disabled={!inputText.trim() || !apiKey || isLoading} className="absolute right-1.5 p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-colors disabled:opacity-50 flex items-center justify-center">
-                          {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-                        </button>
-                      </form>
-                    </div>
-                  </>
-                )}
-
-                {/* 2. STUDY TAB */}
-                {activeTab === 'study' && (
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-8">
-                    
-                    {/* Summary Section */}
-                    <section>
-                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
-                        <BookOpen size={18} className="mr-2 text-indigo-600" /> 
-                        Document Summary
-                      </h4>
-                      
-                      {currentPdfData?.summary ? (
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-sm text-slate-700 leading-relaxed">
-                          {currentPdfData.summary}
-                        </div>
-                      ) : (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-                          <p className="text-sm text-slate-500 mb-4">Have AI read the document and generate an executive summary.</p>
-                          <button 
-                            onClick={() => generateStudyMaterial('summary')} 
-                            disabled={isGeneratingStudy || !apiKey} 
-                            className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                          >
-                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
-                            <span>Generate Summary</span>
-                          </button>
-                        </div>
-                      )}
-                    </section>
-
-                    {/* Glossary Section */}
-                    <section className="pt-8 border-t border-slate-200">
-                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
-                        <List size={18} className="mr-2 text-amber-500" /> 
-                        Glossary Extractor
-                      </h4>
-                      
-                      {currentPdfData?.glossary ? (
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                          <div className="grid grid-cols-1 gap-3">
-                            {currentPdfData.glossary.map((g, i) => (
-                              <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                <span className="font-bold text-indigo-700 text-sm">{g.term}: </span>
-                                <span className="text-sm text-slate-600">{g.definition}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-                          <p className="text-sm text-slate-500 mb-4">Extract all key terms, jargon, and concepts into a study glossary.</p>
-                          <button 
-                            onClick={() => generateStudyMaterial('glossary')} 
-                            disabled={isGeneratingStudy || !apiKey} 
-                            className="w-full flex items-center justify-center space-x-2 bg-amber-500 hover:bg-amber-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                          >
-                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <Bookmark size={16} />}
-                            <span>Extract Glossary</span>
-                          </button>
-                        </div>
-                      )}
-                    </section>
-
-                    {/* Quiz Section */}
-                    <section className="pt-8 border-t border-slate-200">
-                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
-                        <CheckCircle2 size={18} className="mr-2 text-emerald-600" /> 
-                        Knowledge Check Quiz
-                      </h4>
-                      
-                      {currentPdfData?.quiz ? (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                          {currentQuizState?.completed ? (
-                            <div className="text-center py-4">
-                              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <GraduationCap size={32} />
-                              </div>
-                              <h3 className="text-2xl font-bold text-slate-800 mb-2">Quiz Complete!</h3>
-                              <p className="text-slate-600 mb-6">You scored <span className="font-bold text-indigo-600 text-xl">{currentQuizState.score}</span> out of {currentPdfData.quiz.length}</p>
-                              <button 
-                                onClick={() => generateStudyMaterial('quiz')} 
-                                disabled={isGeneratingStudy}
-                                className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors"
-                              >
-                                Generate New Quiz
-                              </button>
-                            </div>
-                          ) : (
-                            <div>
-                              <div className="flex justify-between items-center mb-4">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Question {currentQuizState.currentQuestion + 1} of {currentPdfData.quiz.length}</p>
-                                <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md">Score: {currentQuizState.score}</span>
-                              </div>
-                              <p className="font-medium text-slate-800 mb-5 text-sm">{currentPdfData.quiz[currentQuizState.currentQuestion].question}</p>
-                              
-                              <div className="space-y-2 mb-6">
-                                {currentPdfData.quiz[currentQuizState.currentQuestion].options.map((opt, i) => (
-                                  <button 
-                                    key={i} 
-                                    onClick={() => handleQuizAnswer(opt)} 
-                                    className={`w-full text-left p-3.5 rounded-xl border transition-all text-sm ${currentQuizState.selectedAnswer === opt ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-                                  >
-                                    {opt}
-                                  </button>
-                                ))}
-                              </div>
-                              
-                              <button 
-                                disabled={!currentQuizState.selectedAnswer} 
-                                onClick={submitQuizAnswer} 
-                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                              >
-                                {currentQuizState.currentQuestion === currentPdfData.quiz.length - 1 ? 'Finish Quiz' : 'Submit & Next'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-                          <p className="text-sm text-slate-500 mb-4">Test your knowledge with an AI-generated multiple choice quiz based on the PDF.</p>
-                          <button 
-                            onClick={() => generateStudyMaterial('quiz')} 
-                            disabled={isGeneratingStudy || !apiKey} 
-                            className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                          >
-                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                            <span>Generate Quiz</span>
-                          </button>
-                        </div>
-                      )}
-                    </section>
-                  </div>
-                )}
-
-                {/* 3. NOTES TAB */}
-                {activeTab === 'notes' && (
-                  <div className="flex-1 flex flex-col p-4 bg-slate-50">
-                    <div className="flex items-center space-x-2 mb-3 px-2">
-                      <PenTool size={18} className="text-indigo-600" />
-                      <h4 className="font-bold text-slate-800">My Notes</h4>
-                    </div>
-                    <textarea
-                      value={currentPdfData?.notes || ''}
-                      onChange={(e) => updateNotes(e.target.value)}
-                      placeholder="Jot down your thoughts, copy important formulas, or outline ideas here. These notes are saved automatically for this document!"
-                      className="flex-1 w-full bg-white border border-slate-200 rounded-2xl p-5 text-sm text-slate-700 leading-relaxed focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 shadow-sm resize-none"
-                    />
-                  </div>
-                )}
-
-              </div>
-            </div>
+          <div class="bg-white border border-slate-100 p-3.5 rounded-2xl rounded-tl-sm shadow-sm flex items-center space-x-1 h-11">
+            <div class="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+            <div class="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+            <div class="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
           </div>
-        )}
-      </main>
-    </div>
-  );
-}
+        `;
+        dom.chatMessages.appendChild(loadingDiv);
+      }
+
+      // Input states
+      const disableInputs = !state.apiKey || state.isLoadingChat;
+      dom.chatInput.disabled = disableInputs;
+      dom.chatSubmit.disabled = disableInputs || !dom.chatInput.value.trim();
+      dom.chatInput.placeholder = state.apiKey ? "Ask something..." : "Enter API Key to chat";
+      
+      const sendIcon = document.querySelector('.chat-send-icon');
+      const loadIcon = document.querySelector('.chat-loading-icon');
+      if (state.isLoadingChat) {
+        sendIcon.classList.add('hidden');
+        loadIcon.classList.remove('hidden');
+      } else {
+        sendIcon.classList.remove('hidden');
+        loadIcon.classList.add('hidden');
+      }
+
+      document.querySelectorAll('.quick-action-btn').forEach(btn => {
+        btn.disabled = disableInputs;
+      });
+
+      lucide.createIcons();
+      dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+    }
+
+    function renderStudy() {
+      const data = state.activePdfId ? state.pdfData[state.activePdfId] : null;
+      const btnDisabled = state.isGeneratingStudy || !state.apiKey;
+
+      // Summary
+      if (data?.summary) {
+        dom.studySummary.innerHTML = `<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-sm text-slate-700 leading-relaxed">${data.summary}</div>`;
+      } else {
+        dom.studySummary.innerHTML = `
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <p class="text-sm text-slate-500 mb-4">Have AI read the document and generate an executive summary.</p>
+            <button onclick="generateStudyMaterial('summary')" ${btnDisabled ? 'disabled' : ''} class="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              <i data-lucide="${state.isGeneratingStudy ? 'loader-2' : 'brain-circuit'}" class="w-4 h-4 ${state.isGeneratingStudy ? 'animate-spin' : ''}"></i>
+              <span>Generate Summary</span>
+            </button>
+          </div>`;
+      }
+
+      // Glossary
+      if (data?.glossary) {
+        let itemsHtml = data.glossary.map(g => `
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <span class="font-bold text-indigo-700 text-sm">${g.term}: </span>
+            <span class="text-sm text-slate-600">${g.definition}</span>
+          </div>
+        `).join('');
+        dom.studyGlossary.innerHTML = `<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm"><div class="grid grid-cols-1 gap-3">${itemsHtml}</div></div>`;
+      } else {
+        dom.studyGlossary.innerHTML = `
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <p class="text-sm text-slate-500 mb-4">Extract all key terms, jargon, and concepts into a study glossary.</p>
+            <button onclick="generateStudyMaterial('glossary')" ${btnDisabled ? 'disabled' : ''} class="w-full flex items-center justify-center space-x-2 bg-amber-500 hover:bg-amber-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              <i data-lucide="${state.isGeneratingStudy ? 'loader-2' : 'bookmark'}" class="w-4 h-4 ${state.isGeneratingStudy ? 'animate-spin' : ''}"></i>
+              <span>Extract Glossary</span>
+            </button>
+          </div>`;
+      }
+
+      // Quiz
+      if (data?.quiz) {
+        const qState = state.quizState[state.activePdfId];
+        if (qState.completed) {
+          dom.studyQuiz.innerHTML = `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="text-center py-4">
+                <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i data-lucide="graduation-cap" class="w-8 h-8"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-slate-800 mb-2">Quiz Complete!</h3>
+                <p class="text-slate-600 mb-6">You scored <span class="font-bold text-indigo-600 text-xl">${qState.score}</span> out of ${data.quiz.length}</p>
+                <button onclick="generateStudyMaterial('quiz')" ${state.isGeneratingStudy ? 'disabled' : ''} class="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors">
+                  Generate New Quiz
+                </button>
+              </div>
+            </div>`;
+        } else {
+          const currentQ = data.quiz[qState.currentQuestion];
+          let optionsHtml = currentQ.options.map((opt, i) => {
+            const isSelected = qState.selectedAnswer === opt;
+            return `
+              <button onclick="handleQuizAnswer('${opt.replace(/'/g, "\\'")}')" class="w-full text-left p-3.5 rounded-xl border transition-all text-sm ${isSelected ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}">
+                ${opt}
+              </button>
+            `;
+          }).join('');
+
+          dom.studyQuiz.innerHTML = `
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="flex justify-between items-center mb-4">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Question ${qState.currentQuestion + 1} of ${data.quiz.length}</p>
+                <span class="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md">Score: ${qState.score}</span>
+              </div>
+              <p class="font-medium text-slate-800 mb-5 text-sm">${currentQ.question}</p>
+              <div class="space-y-2 mb-6">${optionsHtml}</div>
+              <button onclick="submitQuizAnswer()" ${!qState.selectedAnswer ? 'disabled' : ''} class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+                ${qState.currentQuestion === data.quiz.length - 1 ? 'Finish Quiz' : 'Submit & Next'}
+              </button>
+            </div>`;
+        }
+      } else {
+        dom.studyQuiz.innerHTML = `
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <p class="text-sm text-slate-500 mb-4">Test your knowledge with an AI-generated multiple choice quiz based on the PDF.</p>
+            <button onclick="generateStudyMaterial('quiz')" ${btnDisabled ? 'disabled' : ''} class="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              <i data-lucide="${state.isGeneratingStudy ? 'loader-2' : 'check-circle-2'}" class="w-4 h-4 ${state.isGeneratingStudy ? 'animate-spin' : ''}"></i>
+              <span>Generate Quiz</span>
+            </button>
+          </div>`;
+      }
+      lucide.createIcons();
+    }
+
+    function renderApp() {
+      // 1. Sidebar
+      renderSidebar();
+      
+      // 2. Main layout visibility
+      if (state.activePdfId) {
+        dom.welcomeScreen.classList.add('hidden');
+        dom.workspace.classList.remove('hidden');
+        dom.workspace.classList.add('flex');
+      } else {
+        dom.welcomeScreen.classList.remove('hidden');
+        dom.workspace.classList.add('hidden');
+        dom.workspace.classList.remove('flex');
+        return; // nothing else to render
+      }
+
+      // 3. Tabs Active State styling
+      const tabs = ['chat', 'study', 'notes'];
+      tabs.forEach(tab => {
+        const btn = document.getElementById(`tab-btn-${tab}`);
+        const content = document.getElementById(`tab-content-${tab}`);
+        if (state.activeTab === tab) {
+          btn.className = "flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors bg-white shadow-sm text-indigo-700";
+          content.classList.remove('hidden');
+          if(tab === 'chat') content.classList.add('flex');
+        } else {
+          btn.className = "flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors text-slate-500 hover:text-slate-700 hover:bg-slate-100";
+          content.classList.add('hidden');
+          if(tab === 'chat') content.classList.remove('flex');
+        }
+      });
+
+      // 4. Render active tab content
+      if (state.activeTab === 'chat') {
+        renderChat();
+      } else if (state.activeTab === 'study') {
+        renderStudy();
+      } else if (state.activeTab === 'notes') {
+        const currentData = state.pdfData[state.activePdfId];
+        dom.notesTextarea.value = currentData ? currentData.notes : '';
+      }
+      
+      // Update form validation dynamically
+      dom.chatInput.dispatchEvent(new Event('input'));
+    }
+
+    // Attach input event for the chat form validation to re-evaluate button state
+    dom.chatInput.addEventListener('input', () => {
+        const disableInputs = !state.apiKey || state.isLoadingChat;
+        dom.chatSubmit.disabled = disableInputs || !dom.chatInput.value.trim();
+    });
+
+  </script>
+</body>
+</html>

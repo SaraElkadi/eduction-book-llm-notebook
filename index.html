@@ -1,0 +1,807 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, FileText, Key, Send, Loader2, Bot, User, BookOpen, Trash2, ChevronRight, ChevronLeft, PenTool, GraduationCap, MessageSquare, Zap, CheckCircle2, BrainCircuit, List, Bookmark } from 'lucide-react';
+
+const PdfViewer = ({ url, initialPage = 1, onProgressChange }) => {
+  const canvasRef = useRef(null);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pageNum, setPageNum] = useState(1);
+  const [isRendering, setIsRendering] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadPdfJs = async () => {
+      if (window.pdfjsLib) {
+        setScriptLoaded(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.async = true;
+      script.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        setScriptLoaded(true);
+      };
+      script.onerror = () => setLoadError('Failed to load PDF engine.');
+      document.body.appendChild(script);
+    };
+    loadPdfJs();
+  }, []);
+
+  useEffect(() => {
+    if (!scriptLoaded || !url) return;
+    
+    let active = true;
+    setPdfDoc(null);
+    setLoadError(null);
+
+    const fetchPdf = async () => {
+      try {
+        const loadingTask = window.pdfjsLib.getDocument(url);
+        const pdf = await loadingTask.promise;
+        if (active) {
+          setPdfDoc(pdf);
+          const validPage = Math.min(Math.max(1, initialPage), pdf.numPages);
+          setPageNum(validPage);
+        }
+      } catch (err) {
+        console.error(err);
+        if (active) setLoadError("Failed to render PDF. It might be encrypted or corrupted.");
+      }
+    };
+
+    fetchPdf();
+    return () => { active = false; };
+  }, [scriptLoaded, url]); // Keep initialPage out of deps to avoid re-running on scroll
+
+  // Notify parent of reading progress
+  useEffect(() => {
+    if (pdfDoc && onProgressChange) {
+      onProgressChange(pageNum, pdfDoc.numPages);
+    }
+  }, [pageNum, pdfDoc]);
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current) return;
+    
+    let active = true;
+    const renderPage = async () => {
+      setIsRendering(true);
+      try {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        const renderContext = {
+          canvasContext: context,
+          viewport: viewport
+        };
+        
+        await page.render(renderContext).promise;
+      } catch (err) {
+        if (active) console.error("Error rendering page:", err);
+      } finally {
+        if (active) setIsRendering(false);
+      }
+    };
+
+    renderPage();
+    return () => { active = false; };
+  }, [pdfDoc, pageNum]);
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-6 text-center bg-slate-50 rounded-b-2xl">
+        <FileText size={48} className="text-red-300 mb-4" />
+        <p className="text-red-600 font-medium">{loadError}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col bg-slate-200 overflow-hidden relative rounded-b-2xl">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-slate-800/80 backdrop-blur-sm text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-4">
+        <button 
+          onClick={() => setPageNum(p => Math.max(1, p - 1))} 
+          disabled={pageNum <= 1 || isRendering}
+          className="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <span className="text-sm font-medium w-24 text-center">
+          {pdfDoc ? `${pageNum} / ${pdfDoc.numPages}` : 'Loading...'}
+        </span>
+        <button 
+          onClick={() => setPageNum(p => Math.min(pdfDoc.numPages, p + 1))} 
+          disabled={!pdfDoc || pageNum >= pdfDoc.numPages || isRendering}
+          className="p-1 hover:bg-slate-700 rounded-full disabled:opacity-30 transition-colors"
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+      
+      <div className="flex-1 overflow-auto p-4 flex justify-center items-start">
+        {!scriptLoaded || !pdfDoc ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-500 space-y-3">
+            <Loader2 size={32} className="animate-spin text-indigo-500" />
+            <p className="text-sm font-medium">Processing Document...</p>
+          </div>
+        ) : (
+          <canvas 
+            ref={canvasRef} 
+            className={`shadow-xl bg-white transition-opacity duration-200 ${isRendering ? 'opacity-50' : 'opacity-100'}`} 
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
+  const [apiKey, setApiKey] = useState('');
+  const [pdfs, setPdfs] = useState([]);
+  const [activePdfId, setActivePdfId] = useState(null);
+  const [chats, setChats] = useState({});
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // New State for Advanced Features
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat', 'study', 'notes'
+  const [pdfData, setPdfData] = useState({}); // Stores summary, glossary, quiz, and notes per PDF
+  const [isGeneratingStudy, setIsGeneratingStudy] = useState(false);
+  const [quizState, setQuizState] = useState({}); // Tracks active quiz progress
+  const [readingProgress, setReadingProgress] = useState({}); // Tracks reading progress per PDF
+  
+  const fileInputRef = useRef(null);
+  const chatEndRef = useRef(null);
+
+  const activePdf = pdfs.find(p => p.id === activePdfId);
+  const activeChat = activePdfId ? (chats[activePdfId] || []) : [];
+  const currentPdfData = activePdfId ? (pdfData[activePdfId] || {}) : {};
+  const currentQuizState = activePdfId ? (quizState[activePdfId] || { currentQuestion: 0, score: 0, selectedAnswer: null, completed: false }) : {};
+
+  // Scroll to bottom of chat
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [activeChat, isLoading, activeTab]);
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || file.type !== 'application/pdf') {
+      setError("Please upload a valid PDF file.");
+      return;
+    }
+
+    setError(null);
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+      const base64 = event.target.result.split(',')[1];
+      const url = URL.createObjectURL(file);
+      
+      const newPdf = {
+        id: Math.random().toString(36).substring(7),
+        name: file.name,
+        url,
+        base64,
+        size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+      };
+      
+      setPdfs(prev => [...prev, newPdf]);
+      setActivePdfId(newPdf.id);
+      setChats(prev => ({ ...prev, [newPdf.id]: [] }));
+      setPdfData(prev => ({ ...prev, [newPdf.id]: { notes: '' } }));
+    };
+    
+    reader.onerror = () => {
+      setError("Failed to read the file.");
+    };
+    
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePdf = (e, id) => {
+    e.stopPropagation();
+    setPdfs(prev => prev.filter(p => p.id !== id));
+    setChats(prev => {
+      const newChats = { ...prev };
+      delete newChats[id];
+      return newChats;
+    });
+    setPdfData(prev => {
+      const newData = { ...prev };
+      delete newData[id];
+      return newData;
+    });
+    if (activePdfId === id) setActivePdfId(null);
+  };
+
+  const callGeminiAPI = async (apiContents, requireJson = false) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const payload = { contents: apiContents };
+    
+    if (requireJson) {
+      payload.generationConfig = { responseMimeType: "application/json" };
+    }
+    
+    const delays = [1000, 2000, 4000, 8000, 16000];
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
+      } catch (err) {
+        lastError = err;
+        if (attempt < 5) await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      }
+    }
+    throw lastError;
+  };
+
+  // Chat Actions
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputText.trim() || !apiKey || !activePdf) return;
+
+    const userMessage = inputText.trim();
+    setInputText('');
+    setError(null);
+    setIsLoading(true);
+
+    const newUserEntry = { role: 'user', text: userMessage };
+    const currentChat = [...activeChat, newUserEntry];
+    setChats(prev => ({ ...prev, [activePdfId]: currentChat }));
+
+    try {
+      const apiContents = currentChat.map((msg, index) => {
+        if (index === 0) {
+          return {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
+              { text: `Context document attached. User query: ${msg.text}` }
+            ]
+          };
+        }
+        return {
+          role: msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: msg.text }]
+        };
+      });
+
+      const responseText = await callGeminiAPI(apiContents);
+      
+      setChats(prev => ({
+        ...prev,
+        [activePdfId]: [...currentChat, { role: 'model', text: responseText }]
+      }));
+    } catch (err) {
+      setError(`API Error: ${err.message || 'Failed to get response'}`);
+      setChats(prev => ({ ...prev, [activePdfId]: activeChat }));
+      setInputText(userMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleQuickAction = (actionType) => {
+    if (actionType === 'eli5') setInputText("Explain the core concepts of this document simply, like I am 5 years old. Use analogies if helpful.");
+    if (actionType === 'keypoints') setInputText("What are the top 5 key takeaways from this document?");
+  };
+
+  // Study Actions
+  const generateStudyMaterial = async (type) => {
+    if (!apiKey || !activePdf) return;
+    setIsGeneratingStudy(true);
+    setError(null);
+
+    try {
+      let prompt = "";
+      if (type === 'summary') {
+        prompt = `Analyze the attached document. Return a JSON object EXACTLY matching this format: {"summary": "A 2-3 paragraph detailed executive summary of the document."}.`;
+      } else if (type === 'glossary') {
+        prompt = `Analyze the attached document and extract a comprehensive glossary of all key educational terms, concepts, and jargon. Return a JSON object EXACTLY matching this format: {"glossary": [{"term": "Concept 1", "definition": "Definition..."}, ...]}. Extract at least 10-15 terms.`;
+      } else if (type === 'quiz') {
+        prompt = `Analyze the attached document and generate a 5-question multiple choice quiz testing the core concepts. Return a JSON object EXACTLY matching this format: {"questions": [{"question": "...", "options": ["A", "B", "C", "D"], "correctAnswer": "Exact string matching one of the options"}]}.`;
+      }
+
+      const contents = [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: activePdf.base64 } },
+          { text: prompt }
+        ]
+      }];
+
+      const resText = await callGeminiAPI(contents, true);
+      // Clean up markdown block wrapping if Gemini decides to include it despite mimeType
+      const cleanJson = resText.replace(/^```json\n?/, '').replace(/```$/, '').trim();
+      const parsedData = JSON.parse(cleanJson);
+
+      setPdfData(prev => ({
+        ...prev,
+        [activePdfId]: {
+          ...(prev[activePdfId] || {}),
+          ...(type === 'summary' && { summary: parsedData.summary }),
+          ...(type === 'glossary' && { glossary: parsedData.glossary }),
+          ...(type === 'quiz' && { quiz: parsedData.questions })
+        }
+      }));
+
+      if (type === 'quiz') {
+        setQuizState(prev => ({ ...prev, [activePdfId]: { currentQuestion: 0, score: 0, selectedAnswer: null, completed: false } }));
+      }
+
+    } catch (err) {
+      console.error(err);
+      setError(`Failed to generate ${type}. The AI response may not have been correctly formatted.`);
+    } finally {
+      setIsGeneratingStudy(false);
+    }
+  };
+
+  const handleQuizAnswer = (option) => {
+    setQuizState(prev => ({
+      ...prev,
+      [activePdfId]: { ...prev[activePdfId], selectedAnswer: option }
+    }));
+  };
+
+  const submitQuizAnswer = () => {
+    const isCorrect = currentQuizState.selectedAnswer === currentPdfData.quiz[currentQuizState.currentQuestion].correctAnswer;
+    const isLastQuestion = currentQuizState.currentQuestion === currentPdfData.quiz.length - 1;
+
+    setQuizState(prev => ({
+      ...prev,
+      [activePdfId]: {
+        ...currentQuizState,
+        score: isCorrect ? currentQuizState.score + 1 : currentQuizState.score,
+        currentQuestion: isLastQuestion ? currentQuizState.currentQuestion : currentQuizState.currentQuestion + 1,
+        selectedAnswer: null,
+        completed: isLastQuestion
+      }
+    }));
+  };
+
+  // Notes Action
+  const updateNotes = (text) => {
+    setPdfData(prev => ({
+      ...prev,
+      [activePdfId]: { ...(prev[activePdfId] || {}), notes: text }
+    }));
+  };
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-x-auto overflow-y-hidden">
+      
+      {/* Sidebar Navigation */}
+      <aside className="w-80 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-10 shadow-sm">
+        <div className="p-6 border-b border-slate-100 flex items-center space-x-3">
+          <div className="bg-indigo-600 p-2 rounded-xl">
+            <BookOpen size={24} className="text-white" />
+          </div>
+          <div>
+            <h1 className="font-bold text-lg text-slate-900 leading-tight">Edu Notebook</h1>
+            <p className="text-xs text-slate-500">AI PDF Assistant</p>
+          </div>
+        </div>
+
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+            Configuration
+          </label>
+          <div className="relative">
+            <Key size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="password"
+              placeholder="Google Gemini API Key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              Your Library
+            </label>
+            
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".pdf"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-4 rounded-xl text-sm font-medium transition-colors border border-indigo-100 mb-4"
+            >
+              <Upload size={18} />
+              <span>Upload PDF Book</span>
+            </button>
+
+            <div className="space-y-2">
+              {pdfs.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">
+                  <FileText size={32} className="mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">No documents yet.<br/>Upload a PDF to get started.</p>
+                </div>
+              ) : (
+                pdfs.map(pdf => {
+                  const progress = readingProgress[pdf.id];
+                  const percent = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+                  
+                  return (
+                    <div
+                      key={pdf.id}
+                      onClick={() => setActivePdfId(pdf.id)}
+                      className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${
+                        activePdfId === pdf.id 
+                          ? 'bg-indigo-600 text-white shadow-md' 
+                          : 'hover:bg-slate-100 text-slate-700 border border-transparent hover:border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-3 overflow-hidden flex-1">
+                        <FileText size={18} className={`flex-shrink-0 mt-0.5 ${activePdfId === pdf.id ? 'text-indigo-200' : 'text-slate-400'}`} />
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="truncate text-sm font-medium">
+                            {pdf.name}
+                          </div>
+                          {/* Reading Progress Indicator */}
+                          {progress && (
+                            <div className="mt-2 flex items-center space-x-2">
+                              <div className="flex-1 h-1.5 bg-slate-200/30 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full rounded-full ${activePdfId === pdf.id ? 'bg-indigo-300' : 'bg-emerald-500'}`} 
+                                  style={{ width: `${percent}%` }}
+                                ></div>
+                              </div>
+                              <span className={`text-[10px] font-bold ${activePdfId === pdf.id ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                {percent}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => removePdf(e, pdf.id)}
+                        className={`p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ${
+                          activePdfId === pdf.id ? 'hover:bg-indigo-500 text-indigo-200 hover:text-white' : 'hover:bg-red-100 text-slate-400 hover:text-red-600'
+                        }`}
+                        title="Remove PDF"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex bg-slate-50">
+        {!activePdf ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="max-w-md text-center p-8 bg-white rounded-3xl shadow-sm border border-slate-100">
+              <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <BookOpen size={40} />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-800 mb-3">Welcome to Edu Notebook</h2>
+              <p className="text-slate-500 mb-8 leading-relaxed">
+                Upload your educational PDFs, textbooks, or papers, and use AI to ask questions, generate summaries, take quizzes, and master the material.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex h-full">
+            
+            {/* PDF Viewer Pane */}
+            <div className="flex-1 flex flex-col border-r border-slate-200 bg-slate-200/50 p-4 min-w-[500px]">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 overflow-hidden flex flex-col">
+                <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <FileText size={16} className="text-indigo-600" />
+                    <span className="font-semibold text-sm text-slate-700 truncate max-w-md">{activePdf.name}</span>
+                  </div>
+                  <span className="text-xs text-slate-400 bg-white px-2 py-1 rounded-md border border-slate-100">{activePdf.size}</span>
+                </div>
+                <PdfViewer 
+                  url={activePdf.url} 
+                  initialPage={readingProgress[activePdfId]?.current || 1}
+                  onProgressChange={(current, total) => {
+                    setReadingProgress(prev => {
+                      if (prev[activePdfId]?.current === current && prev[activePdfId]?.total === total) return prev;
+                      return { ...prev, [activePdfId]: { current, total } };
+                    });
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Interactive Pane (Chat/Study/Notes) */}
+            <div className="w-[500px] flex flex-col bg-white flex-shrink-0 z-10 shadow-[0_0_15px_rgba(0,0,0,0.05)] relative">
+              
+              {/* Tab Navigation */}
+              <div className="flex bg-slate-50 p-2 border-b border-slate-200 gap-1 absolute top-0 left-0 right-0 z-20 h-14">
+                <button 
+                  onClick={() => setActiveTab('chat')} 
+                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'chat' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+                >
+                  <MessageSquare size={16} /> <span>Chat</span>
+                </button>
+                <button 
+                  onClick={() => setActiveTab('study')} 
+                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'study' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+                >
+                  <GraduationCap size={16} /> <span>Study Mode</span>
+                </button>
+                <button 
+                  onClick={() => setActiveTab('notes')} 
+                  className={`flex-1 flex items-center justify-center space-x-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'notes' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+                >
+                  <PenTool size={16} /> <span>Notes</span>
+                </button>
+              </div>
+
+              {/* Error Banner */}
+              {error && (
+                <div className="absolute top-14 left-0 right-0 bg-red-50 p-3 flex items-start space-x-2 border-b border-red-100 z-30 text-red-700 shadow-sm">
+                  <Bot size={16} className="mt-0.5 flex-shrink-0" />
+                  <p className="text-sm">{error}</p>
+                </div>
+              )}
+
+              {/* TABS CONTENT */}
+              <div className="flex-1 mt-14 overflow-hidden flex flex-col relative">
+                
+                {/* 1. CHAT TAB */}
+                {activeTab === 'chat' && (
+                  <>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-50/50">
+                      {activeChat.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center px-6 text-slate-500">
+                          <Bot size={48} className="text-indigo-200 mb-4" />
+                          <p className="text-sm font-medium text-slate-700 mb-2">I've read "{activePdf.name}"</p>
+                          <p className="text-xs">Ask me anything about the document, or use the quick actions below!</p>
+                        </div>
+                      ) : (
+                        activeChat.map((msg, idx) => (
+                          <div key={idx} className={`flex items-start space-x-3 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                              {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                            </div>
+                            <div className={`p-3.5 rounded-2xl text-sm leading-relaxed max-w-[85%] shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-100 text-slate-700 rounded-tl-sm'}`}>
+                              {msg.text.split('\n').map((line, i) => (
+                                <React.Fragment key={i}>{line}{i !== msg.text.split('\n').length - 1 && <br />}</React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      
+                      {isLoading && (
+                        <div className="flex items-start space-x-3">
+                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
+                            <Loader2 size={16} className="animate-spin" />
+                          </div>
+                          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl rounded-tl-sm shadow-sm flex items-center space-x-1 h-11">
+                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+
+                    {/* Quick Actions Bar */}
+                    <div className="bg-slate-50 flex gap-2 overflow-x-auto border-t border-slate-200 p-2.5 px-4 scrollbar-hide">
+                      <button onClick={() => handleQuickAction('eli5')} disabled={isLoading || !apiKey} className="whitespace-nowrap flex items-center text-xs font-medium bg-white text-indigo-700 px-3.5 py-2 rounded-full border border-indigo-100 hover:bg-indigo-50 transition-colors shadow-sm disabled:opacity-50">
+                        <Zap size={14} className="mr-1.5 text-amber-500" /> Explain Like I'm 5
+                      </button>
+                      <button onClick={() => handleQuickAction('keypoints')} disabled={isLoading || !apiKey} className="whitespace-nowrap flex items-center text-xs font-medium bg-white text-emerald-700 px-3.5 py-2 rounded-full border border-emerald-100 hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50">
+                        <BrainCircuit size={14} className="mr-1.5 text-emerald-500" /> Key Takeaways
+                      </button>
+                    </div>
+
+                    <div className="p-4 bg-white border-t border-slate-100 z-10">
+                      <form onSubmit={handleSendMessage} className="relative flex items-center">
+                        <input
+                          type="text"
+                          value={inputText}
+                          onChange={(e) => setInputText(e.target.value)}
+                          placeholder={apiKey ? "Ask something..." : "Enter API Key to chat"}
+                          disabled={!apiKey || isLoading}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-full py-3 pl-5 pr-14 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-inner disabled:opacity-60"
+                        />
+                        <button type="submit" disabled={!inputText.trim() || !apiKey || isLoading} className="absolute right-1.5 p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-colors disabled:opacity-50 flex items-center justify-center">
+                          {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                        </button>
+                      </form>
+                    </div>
+                  </>
+                )}
+
+                {/* 2. STUDY TAB */}
+                {activeTab === 'study' && (
+                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-8">
+                    
+                    {/* Summary Section */}
+                    <section>
+                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
+                        <BookOpen size={18} className="mr-2 text-indigo-600" /> 
+                        Document Summary
+                      </h4>
+                      
+                      {currentPdfData?.summary ? (
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-sm text-slate-700 leading-relaxed">
+                          {currentPdfData.summary}
+                        </div>
+                      ) : (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+                          <p className="text-sm text-slate-500 mb-4">Have AI read the document and generate an executive summary.</p>
+                          <button 
+                            onClick={() => generateStudyMaterial('summary')} 
+                            disabled={isGeneratingStudy || !apiKey} 
+                            className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
+                            <span>Generate Summary</span>
+                          </button>
+                        </div>
+                      )}
+                    </section>
+
+                    {/* Glossary Section */}
+                    <section className="pt-8 border-t border-slate-200">
+                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
+                        <List size={18} className="mr-2 text-amber-500" /> 
+                        Glossary Extractor
+                      </h4>
+                      
+                      {currentPdfData?.glossary ? (
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                          <div className="grid grid-cols-1 gap-3">
+                            {currentPdfData.glossary.map((g, i) => (
+                              <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span className="font-bold text-indigo-700 text-sm">{g.term}: </span>
+                                <span className="text-sm text-slate-600">{g.definition}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+                          <p className="text-sm text-slate-500 mb-4">Extract all key terms, jargon, and concepts into a study glossary.</p>
+                          <button 
+                            onClick={() => generateStudyMaterial('glossary')} 
+                            disabled={isGeneratingStudy || !apiKey} 
+                            className="w-full flex items-center justify-center space-x-2 bg-amber-500 hover:bg-amber-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <Bookmark size={16} />}
+                            <span>Extract Glossary</span>
+                          </button>
+                        </div>
+                      )}
+                    </section>
+
+                    {/* Quiz Section */}
+                    <section className="pt-8 border-t border-slate-200">
+                      <h4 className="font-bold text-slate-800 mb-4 flex items-center">
+                        <CheckCircle2 size={18} className="mr-2 text-emerald-600" /> 
+                        Knowledge Check Quiz
+                      </h4>
+                      
+                      {currentPdfData?.quiz ? (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                          {currentQuizState?.completed ? (
+                            <div className="text-center py-4">
+                              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <GraduationCap size={32} />
+                              </div>
+                              <h3 className="text-2xl font-bold text-slate-800 mb-2">Quiz Complete!</h3>
+                              <p className="text-slate-600 mb-6">You scored <span className="font-bold text-indigo-600 text-xl">{currentQuizState.score}</span> out of {currentPdfData.quiz.length}</p>
+                              <button 
+                                onClick={() => generateStudyMaterial('quiz')} 
+                                disabled={isGeneratingStudy}
+                                className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+                              >
+                                Generate New Quiz
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="flex justify-between items-center mb-4">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Question {currentQuizState.currentQuestion + 1} of {currentPdfData.quiz.length}</p>
+                                <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md">Score: {currentQuizState.score}</span>
+                              </div>
+                              <p className="font-medium text-slate-800 mb-5 text-sm">{currentPdfData.quiz[currentQuizState.currentQuestion].question}</p>
+                              
+                              <div className="space-y-2 mb-6">
+                                {currentPdfData.quiz[currentQuizState.currentQuestion].options.map((opt, i) => (
+                                  <button 
+                                    key={i} 
+                                    onClick={() => handleQuizAnswer(opt)} 
+                                    className={`w-full text-left p-3.5 rounded-xl border transition-all text-sm ${currentQuizState.selectedAnswer === opt ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                                  >
+                                    {opt}
+                                  </button>
+                                ))}
+                              </div>
+                              
+                              <button 
+                                disabled={!currentQuizState.selectedAnswer} 
+                                onClick={submitQuizAnswer} 
+                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                              >
+                                {currentQuizState.currentQuestion === currentPdfData.quiz.length - 1 ? 'Finish Quiz' : 'Submit & Next'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+                          <p className="text-sm text-slate-500 mb-4">Test your knowledge with an AI-generated multiple choice quiz based on the PDF.</p>
+                          <button 
+                            onClick={() => generateStudyMaterial('quiz')} 
+                            disabled={isGeneratingStudy || !apiKey} 
+                            className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            {isGeneratingStudy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                            <span>Generate Quiz</span>
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                )}
+
+                {/* 3. NOTES TAB */}
+                {activeTab === 'notes' && (
+                  <div className="flex-1 flex flex-col p-4 bg-slate-50">
+                    <div className="flex items-center space-x-2 mb-3 px-2">
+                      <PenTool size={18} className="text-indigo-600" />
+                      <h4 className="font-bold text-slate-800">My Notes</h4>
+                    </div>
+                    <textarea
+                      value={currentPdfData?.notes || ''}
+                      onChange={(e) => updateNotes(e.target.value)}
+                      placeholder="Jot down your thoughts, copy important formulas, or outline ideas here. These notes are saved automatically for this document!"
+                      className="flex-1 w-full bg-white border border-slate-200 rounded-2xl p-5 text-sm text-slate-700 leading-relaxed focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 shadow-sm resize-none"
+                    />
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
